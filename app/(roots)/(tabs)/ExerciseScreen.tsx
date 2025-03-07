@@ -1,11 +1,12 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Image, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
-import { RouteProp, useRoute } from '@react-navigation/native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, Image, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { RouteProp, useRoute, useNavigation } from '@react-navigation/native';
+import Feather from '@expo/vector-icons/Feather';
 import { getDownloadURL, ref } from '@firebase/storage';
 import { storage } from '../../../Firebase/config';
-import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 
+// Types
 type RootStackParamList = {
     ExerciseScreen: { exercise: ExerciseItem };
 };
@@ -22,172 +23,232 @@ type ExerciseItem = {
 const ExerciseScreen = () => {
     const route = useRoute<RouteProp<RootStackParamList, 'ExerciseScreen'>>();
     const { exercise } = route.params;
+    const navigation = useNavigation();
 
     const [gifUrl, setGifUrl] = useState<string | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [workoutTime, setWorkoutTime] = useState(60); // default 60 seconds
-    const [secondsLeft, setSecondsLeft] = useState(workoutTime); 
-    const [isRunning, setIsRunning] = useState(false);
+    const [time, setTime] = useState<number>(60);
+    const [countdown, setCountdown] = useState<number | null>(null);
+    const [sound, setSound] = useState<Audio.Sound | null>(null);
 
     useEffect(() => {
+        const fetchGifUrl = async () => {
+            try {
+                const storageRef = ref(storage, `All Exercises/${exercise.gif_url}`);
+                const url = await getDownloadURL(storageRef);
+                setGifUrl(url);
+            } catch (error) {
+                console.error('Failed to load GIF:', error);
+            }
+        };
         fetchGifUrl();
+
+        return () => {
+            if (sound) {
+                sound.unloadAsync();
+            }
+        };
     }, []);
 
-    useEffect(() => {
-        setSecondsLeft(workoutTime); // keep sync if workout time changes
-    }, [workoutTime]);
-
-    useEffect(() => {
-        let timer: NodeJS.Timeout;
-
-        if (isRunning && secondsLeft > 0) {
-            timer = setInterval(() => {
-                setSecondsLeft((prev) => {
-                    if (prev <= 1) {
-                        playSound('end');
-                        setIsRunning(false);
-                        return 0;
-                    }
-                    if (prev <= 4) {
-                        playSound('countdown'); // plays at 3,2,1
-                    }
-                    return prev - 1;
-                });
-            }, 1000);
-        }
-
-        return () => clearInterval(timer);
-    }, [isRunning, secondsLeft]);
-
-    const fetchGifUrl = async () => {
-        try {
-            const storageRef = ref(storage, `All Exercises/${exercise.gif_url}`);
-            const url = await getDownloadURL(storageRef);
-            setGifUrl(url);
-        } catch (error) {
-            console.error('Failed to load image:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const playSound = async (type: 'countdown' | 'end') => {
-        try {
+    const playCountdownSound = async () => {
+        if (time <= 3) {
             const { sound } = await Audio.Sound.createAsync(
-                type === 'countdown'
-                    ? require('../../../assets/sounds/beep.mp3')
-                    : require('../../../assets/sounds/ding.mp3')
+                require('../../../assets/sounds/beep.mp3')
             );
+            setSound(sound);
             await sound.playAsync();
-        } catch (error) {
-            console.error('Failed to play sound', error);
         }
     };
 
-    const increaseTime = () => setWorkoutTime((prev) => prev + 5);
-    const decreaseTime = () => setWorkoutTime((prev) => (prev > 5 ? prev - 5 : 5));
-    const resetTime = () => {
-        setIsRunning(false);
-        setWorkoutTime(60);
-        setSecondsLeft(60);
+    useEffect(() => {
+        if (time <= 3 && countdown !== null) {
+            playCountdownSound();
+        }
+    }, [time]);
+
+    const startTimer = () => {
+        if (countdown) return; // Prevent multiple timers
+
+        const interval = setInterval(() => {
+            setTime((prev) => {
+                if (prev <= 1) {
+                    clearInterval(interval);
+                    setCountdown(null);
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+
+        setCountdown(interval as unknown as number); // Fix TS type issue
     };
-    const startTimer = () => setIsRunning(true);
-    const stopTimer = () => setIsRunning(false);
+
+    const resetTimer = () => {
+        if (countdown) clearInterval(countdown);
+        setCountdown(null);
+        setTime(60);
+    };
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-            {loading ? (
-                <ActivityIndicator size="large" color="#007AFF" style={styles.loader} />
-            ) : (
-                <Image source={{ uri: gifUrl ?? '' }} style={styles.image} resizeMode="cover" />
-            )}
+        <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 30 }}>
+            {/* Image Section */}
+            <View style={styles.imageContainer}>
+                {gifUrl && (
+                    <Image source={{ uri: gifUrl }} style={styles.gif} />
+                )}
+                <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+                    <Feather name="arrow-left-circle" size={32} color="white" />
+                </TouchableOpacity>
+            </View>
 
-            <View style={styles.detailsContainer}>
-                <Text style={styles.title}>{exercise.title}</Text>
+            {/* Workout Title & Details */}
+            <Text style={styles.title}>{exercise.title}</Text>
+            <View style={styles.tagContainer}>
+                <Text style={styles.categoryTag}>{exercise.category}</Text>
+                <Text style={styles.intensityTag}>
+                    Intensity: <Text style={styles.intensityValue}>{exercise.intensity}</Text>
+                </Text>
+            </View>
 
-                <View style={styles.tagsContainer}>
-                    <Text style={styles.category}>{exercise.category}</Text>
-                    <View style={styles.intensityContainer}>
-                        <Text style={styles.intensityLabel}>Intensity:</Text>
-                        <Text style={styles.intensityValue}>{exercise.intensity}</Text>
-                    </View>
-                </View>
-
-                <Text style={styles.sectionTitle}>Instructions</Text>
+            {/* Instructions */}
+            <Text style={styles.instructionsHeader}>Instructions</Text>
+            <View style={styles.instructionsContainer}>
                 {exercise.instructions.map((instruction) => (
                     <Text key={instruction.step} style={styles.instructionText}>
                         {instruction.step}. {instruction.text}
                     </Text>
                 ))}
+            </View>
 
-                <View style={styles.timerContainer}>
-                    <TouchableOpacity onPress={decreaseTime} style={styles.timerButton}>
-                        <Ionicons name="remove-circle" size={36} color="#FF3B30" />
-                    </TouchableOpacity>
+            {/* Timer Controls */}
+            <View style={styles.timerContainer}>
+                <TouchableOpacity onPress={() => setTime((prev) => Math.max(prev - 5, 0))}>
+                    <Feather name="minus-circle" size={40} color="black" />
+                </TouchableOpacity>
 
-                    <Text style={styles.timerText}>{secondsLeft} sec</Text>
+                <Text style={styles.timerText}>{time}s</Text>
 
-                    <TouchableOpacity onPress={increaseTime} style={styles.timerButton}>
-                        <Ionicons name="add-circle" size={36} color="#34C759" />
-                    </TouchableOpacity>
-                </View>
+                <TouchableOpacity onPress={() => setTime((prev) => prev + 5)}>
+                    <Feather name="plus-circle" size={40} color="black" />
+                </TouchableOpacity>
+            </View>
 
-                <View style={styles.buttonContainer}>
-                    {!isRunning ? (
-                        <TouchableOpacity style={styles.startButton} onPress={startTimer}>
-                            <Text style={styles.buttonText}>Start</Text>
-                        </TouchableOpacity>
-                    ) : (
-                        <TouchableOpacity style={styles.stopButton} onPress={stopTimer}>
-                            <Text style={styles.buttonText}>Pause</Text>
-                        </TouchableOpacity>
-                    )}
-
-                    <TouchableOpacity style={styles.resetButton} onPress={resetTime}>
-                        <Text style={styles.buttonText}>Reset</Text>
-                    </TouchableOpacity>
-                </View>
+            {/* Start / Reset Buttons */}
+            <View style={styles.buttonContainer}>
+                <TouchableOpacity style={styles.startButton} onPress={startTimer}>
+                    <Text style={styles.buttonText}>Start</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.resetButton} onPress={resetTimer}>
+                    <Text style={styles.buttonText}>Reset</Text>
+                </TouchableOpacity>
             </View>
         </ScrollView>
     );
 };
 
-// Styles
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#F7F8FC' },
-    contentContainer: { paddingBottom: 30 },
-    loader: { marginVertical: 50 },
-    image: { width: '100%', height: 250 },
-    detailsContainer: { padding: 16 },
-    title: { fontSize: 26, fontWeight: 'bold', marginBottom: 12, color: '#1A1A1A' },
-    tagsContainer: { flexDirection: 'row', gap: 12, marginBottom: 16 },
-    category: {
-        backgroundColor: '#FF69B4',
-        paddingHorizontal: 12,
+    container: {
+        flex: 1,
+        backgroundColor: '#f7f7f7',
+    },
+    imageContainer: {
+        width: '100%',
+        height: 300, // Increased slightly
+        marginTop: 10, // Move down a bit
+        position: 'relative',
+    },
+    gif: {
+        width: '100%',
+        height: '100%',
+        resizeMode: 'cover',
+    },
+    backButton: {
+        position: 'absolute',
+        top: 15,
+        left: 15,
+        backgroundColor: 'rgba(0,0,0,0.4)',
+        padding: 5,
+        borderRadius: 20,
+    },
+    title: {
+        fontSize: 28,
+        fontWeight: 'bold',
+        textAlign: 'center',
+        marginTop: 12,
+        color: '#333',
+    },
+    tagContainer: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        gap: 16,
+        marginTop: 6,
+    },
+    categoryTag: {
+        backgroundColor: '#ffe4e1',
+        color: '#ff69b4',
+        fontWeight: 'bold',
         paddingVertical: 4,
-        borderRadius: 8,
-        color: '#FFF',
+        paddingHorizontal: 12,
+        borderRadius: 16,
+        fontSize: 14,
+    },
+    intensityTag: {
+        fontSize: 16,
+        color: '#555',
+    },
+    intensityValue: {
+        color: '#64b5f6',
         fontWeight: 'bold',
     },
-    intensityContainer: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-    intensityLabel: { fontWeight: 'bold', color: '#007AFF' },
-    intensityValue: { color: '#ADD8E6', fontWeight: 'bold' },
-    sectionTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 8 },
-    instructionText: { fontSize: 16, marginBottom: 4, color: '#444' },
-    timerContainer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 20, marginVertical: 16 },
-    timerButton: { padding: 4 },
-    timerText: { fontSize: 28, fontWeight: 'bold', color: '#333' },
-    buttonContainer: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 },
-    startButton: {
-        backgroundColor: '#34C759', flex: 1, marginRight: 8, paddingVertical: 12, borderRadius: 8, alignItems: 'center',
+    instructionsHeader: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        marginTop: 12,
+        marginBottom: 6,
+        paddingHorizontal: 16,
     },
-    stopButton: {
-        backgroundColor: '#FFA500', flex: 1, marginRight: 8, paddingVertical: 12, borderRadius: 8, alignItems: 'center',
+    instructionsContainer: {
+        paddingHorizontal: 16,
+    },
+    instructionText: {
+        fontSize: 18,
+        marginBottom: 6,
+        color: '#444',
+    },
+    timerContainer: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginTop: 12,
+        gap: 50,
+    },
+    timerText: {
+        fontSize: 34,
+        fontWeight: 'bold',
+        color: '#333',
+    },
+    buttonContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-evenly',
+        marginTop: 16,
+        paddingHorizontal: 16,
+    },
+    startButton: {
+        backgroundColor: '#4CAF50',
+        paddingVertical: 12,
+        paddingHorizontal: 38,
+        borderRadius: 30,
     },
     resetButton: {
-        backgroundColor: '#FF3B30', flex: 1, marginLeft: 8, paddingVertical: 12, borderRadius: 8, alignItems: 'center',
+        backgroundColor: '#f44336',
+        paddingVertical: 12,
+        paddingHorizontal: 38,
+        borderRadius: 30,
     },
-    buttonText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+    buttonText: {
+        color: 'white',
+        fontWeight: 'bold',
+        fontSize: 18,
+    },
 });
 
 export default ExerciseScreen;

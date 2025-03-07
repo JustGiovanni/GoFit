@@ -1,6 +1,8 @@
 import { View, Text, FlatList, TouchableOpacity, ImageBackground } from 'react-native';
 import React from 'react';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
+import { useRouter } from 'expo-router';
+
 
 const beginner = require('../../../assets/images/beginner.jpg');
 const balance = require('../../../assets/images/balance.jpg');
@@ -28,8 +30,17 @@ const workoutData: WorkoutItem[] = [
 ];
 
 const CategoryItems = () => {
+    const router = useRouter();
+
+    const handleExercisePress = (category: string) => {
+        router.push({
+            pathname: '../(tabs)/CategoryExerciseScreen',
+            params: { category },
+        });
+    };
+
     const renderWorkoutItem = ({ item }: { item: WorkoutItem }) => (
-        <TouchableOpacity>
+        <TouchableOpacity onPress={() => handleExercisePress(item.title)}>
             <ImageBackground
                 source={item.imageSource}
                 style={{
@@ -40,7 +51,6 @@ const CategoryItems = () => {
                     marginHorizontal: 8,
                 }}
             >
-                {/* Full height container for content */}
                 <View
                     style={{
                         flex: 1,
@@ -48,7 +58,6 @@ const CategoryItems = () => {
                         padding: 12,
                     }}
                 >
-                    {/* Top Row (Icon + Exercises) */}
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                         <FontAwesome5 name="dumbbell" size={18} color="white" />
                         <Text style={{ color: 'white', fontWeight: 'bold', letterSpacing: 1 }}>
@@ -56,14 +65,12 @@ const CategoryItems = () => {
                         </Text>
                     </View>
 
-                    {/* Bottom Title */}
                     <Text
                         style={{
                             color: 'white',
                             fontWeight: 'bold',
                             fontSize: 18,
                             letterSpacing: 1,
-                            alignSelf: 'flex-start', // Make sure it's not centered
                         }}
                     >
                         {item.title}
@@ -79,7 +86,7 @@ const CategoryItems = () => {
                 data={workoutData}
                 renderItem={renderWorkoutItem}
                 keyExtractor={(item) => item.id.toString()}
-                horizontal={true}
+                horizontal
                 showsHorizontalScrollIndicator={false}
             />
         </View>
